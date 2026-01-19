@@ -21,9 +21,20 @@
 
 **同 prompt / seed / CFG**。左图是提前解码（k=2, x0），右图是默认最终步解码。
 
+**20 步**
 | 提前解码（k=2, x0） | 最终步解码（x0） |
 | --- | --- |
-| ![](../assets/gallery/sdxl_clml_early2_x0_1024.png) | ![](../assets/gallery/sdxl_clml_final_x0_1024.png) |
+| <img src="../assets/gallery/sdxl_clml_early2_x0_1024.png" alt="sdxl early k2 x0 20 steps" width="512"><br/><sub>SM8750 · 步数=20 · k=2 · s/it=3.21684（CFG UNet）</sub> | <img src="../assets/gallery/sdxl_clml_final_x0_1024.png" alt="sdxl final x0 20 steps" width="512"><br/><sub>SM8750 · 步数=20 · final · s/it=3.21684（CFG UNet）</sub> |
+
+**25 步**
+| 提前解码（k=2, x0） | 最终步解码（x0） |
+| --- | --- |
+| <img src="../assets/gallery/sdxl_clml_k2_x0_25steps.png" alt="sdxl early k2 x0 25 steps" width="512"><br/><sub>SM8750 · 步数=25 · k=2 · s/it=3.21684（CFG UNet）</sub> | <img src="../assets/gallery/sdxl_clml_final_x0_25steps.png" alt="sdxl final x0 25 steps" width="512"><br/><sub>SM8750 · 步数=25 · final · s/it=3.21684（CFG UNet）</sub> |
+
+**30 步**
+| 提前解码（k=2, x0） | 最终步解码（x0） |
+| --- | --- |
+| <img src="../assets/gallery/sdxl_clml_k2_x0_30steps.png" alt="sdxl early k2 x0 30 steps" width="512"><br/><sub>SM8750 · 步数=30 · k=2 · s/it=3.21684（CFG UNet）</sub> | <img src="../assets/gallery/sdxl_clml_final_x0_30steps.png" alt="sdxl final x0 30 steps" width="512"><br/><sub>SM8750 · 步数=30 · final · s/it=3.21684（CFG UNet）</sub> |
 
 ---
 
