@@ -78,11 +78,13 @@ Conclusion highlights:
 
 ---
 
-## Roadmap
+## Roadmap (Confirmed)
 
-- Add SDXL Base/Turbo support at 512 and 768 resolutions
+- SDXL Base/Turbo 512/768 backend is already done; front-end integration is pending
+- Verified SDXL 512 single-step UNet timing on SM8750: **65–70 ms/step**  
+  - Record: `release/bench/logs/sdxl_512_unet_timing_record.md` (device_base_logcat, graph `qnn_base_unet_w8a16_b1_512_real_dpm`)
+- Therefore SDXL Turbo 768 on SM8750 **will** generate a high-quality image within 10 seconds (quality/perf balance)
 - On 16GB RAM devices, enable optional UNet pre-init for SDXL
-- Target: SDXL Turbo 768 on SM8750 generates a high-quality image in under 10 seconds (quality/perf balance)
 
 ---
 
