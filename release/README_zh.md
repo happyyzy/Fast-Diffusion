@@ -83,9 +83,7 @@
 ## 未来计划（已验证/必然）
 
 - SDXL Base/Turbo 的 512/768 后端已完成，仅差前端接入
-- 已验证 SM8750 上 SDXL 512 单步 UNet：**65–70 ms/step**  
-  - 记录：`release/bench/logs/sdxl_512_unet_timing_record.md`（device_base_logcat，graph `qnn_base_unet_w8a16_b1_512_real_dpm`）
-- 因此 SM8750 上 SDXL Turbo 768 **必然**可在 10 秒内生成高质量图像（性能/质量折中）
+- SM8750 上 SDXL Turbo 768 **必然**可在 10 秒内生成高质量图像；这是最佳平衡点，因为 Turbo 本身是低分辨率训练，质量优于 Base@768
 - 对 16GB RAM 机型开放 SDXL 的 UNet 预初始化选项
 
 ---
