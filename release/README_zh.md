@@ -45,9 +45,9 @@
 
 ## 图集（SD1.5 512，CLML）
 
-| 人像 1 | 人像 2 | 人像 3 |
-| --- | --- | --- |
-| <img src="../assets/gallery/sd15_clml_portrait1.png" alt="sd15 portrait1" width="360"><br/><sub>SM8750 · 步数=20 · s/step=0.459639（CFG）</sub> | <img src="../assets/gallery/sd15_clml_portrait2.png" alt="sd15 portrait2" width="360"><br/><sub>SM8750 · 步数=20 · s/step=0.459639（CFG）</sub> | <img src="../assets/gallery/sd15_clml_portrait3.png" alt="sd15 portrait3" width="360"><br/><sub>SM8750 · 步数=20 · s/step=0.459639（CFG）</sub> |
+| 人像 2 | 非人像（城市夜景） |
+| --- | --- |
+| <img src="../assets/gallery/sd15_clml_portrait2.png" alt="sd15 portrait2" width="360"><br/><sub>SM8750 · 步数=20 · s/step=0.459639（CFG）</sub> | <img src="../assets/gallery/sd15_clml_sample_cityscape.png" alt="sd15 cityscape" width="360"><br/><sub>SM8750 · 步数=20 · s/step=0.459639（CFG）</sub> |
 
 ---
 
