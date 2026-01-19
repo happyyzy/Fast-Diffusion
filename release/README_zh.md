@@ -36,6 +36,11 @@
 | --- | --- |
 | <img src="../assets/gallery/sdxl_clml_k2_x0_30steps.png" alt="sdxl early k2 x0 30 steps" width="512"><br/><sub>SM8750 · 步数=30 · k=2 · s/it=3.21684（CFG UNet）</sub> | <img src="../assets/gallery/sdxl_clml_final_x0_30steps.png" alt="sdxl final x0 30 steps" width="512"><br/><sub>SM8750 · 步数=30 · final · s/it=3.21684（CFG UNet）</sub> |
 
+**步进快照（20 步，x0）**
+| Step 17（k=2） | Step 18（k=1） | Step 19（final） |
+| --- | --- | --- |
+| <img src="../assets/gallery/sdxl_clml_x0_step17.png" alt="sdxl x0 step17" width="360"><br/><sub>SM8750 · 步数=20 · step=17 · s/it=3.21684（CFG UNet）</sub> | <img src="../assets/gallery/sdxl_clml_x0_step18.png" alt="sdxl x0 step18" width="360"><br/><sub>SM8750 · 步数=20 · step=18 · s/it=3.21684（CFG UNet）</sub> | <img src="../assets/gallery/sdxl_clml_x0_step19.png" alt="sdxl x0 step19" width="360"><br/><sub>SM8750 · 步数=20 · step=19 · s/it=3.21684（CFG UNet）</sub> |
+
 ---
 
 ## 性能对比（CFG 口径对齐，含明确记录）
