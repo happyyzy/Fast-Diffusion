@@ -43,6 +43,14 @@
 
 ---
 
+## 图集（SD1.5 512，CLML）
+
+| 人像 1 | 人像 2 | 人像 3 |
+| --- | --- | --- |
+| <img src="../assets/gallery/sd15_clml_portrait1.png" alt="sd15 portrait1" width="360"><br/><sub>SM8750 · 步数=20 · s/step=0.459639（CFG）</sub> | <img src="../assets/gallery/sd15_clml_portrait2.png" alt="sd15 portrait2" width="360"><br/><sub>SM8750 · 步数=20 · s/step=0.459639（CFG）</sub> | <img src="../assets/gallery/sd15_clml_portrait3.png" alt="sd15 portrait3" width="360"><br/><sub>SM8750 · 步数=20 · s/step=0.459639（CFG）</sub> |
+
+---
+
 ## 性能对比（CFG 口径对齐，含明确记录）
 
 我们的实测（完整记录已附在仓库中）：
