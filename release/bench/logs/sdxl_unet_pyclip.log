@@ -1,0 +1,27 @@
+[CLIP] use precomputed embeddings
+[Config] optimize_device_mem=1 decoder_optimize_mem=0 use_mnn_vae=0 mnn_vae_expects_scaled=0 unet_only=1
+[Perf] UNet init_s=65.6627
+[UNet] step 1/20
+[UNet] step 2/20
+[UNet] step 3/20
+[UNet] step 4/20
+[UNet] step 5/20
+[UNet] step 6/20
+[UNet] step 7/20
+[UNet] step 8/20
+[UNet] step 9/20
+[UNet] step 10/20
+[UNet] step 11/20
+[UNet] step 12/20
+[UNet] step 13/20
+[UNet] step 14/20
+[UNet] step 15/20
+[UNet] step 16/20
+[UNet] step 17/20
+[UNet] step 18/20
+[UNet] step 19/20
+[UNet] step 20/20
+[Perf] UNet loop_s=64.3368 s/step=3.21684
+[Info] UNet done, releasing CL env
+[Info] UNet CL env released
+[Out] latent=/data/local/tmp/sdxl_latent_1024_seed0_pyclip.qfp32 (unscaled)
