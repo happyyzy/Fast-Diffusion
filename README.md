@@ -78,6 +78,14 @@ Conclusion highlights:
 
 ---
 
+## Roadmap
+
+- Add SDXL Base/Turbo support at 512 and 768 resolutions
+- On 16GB RAM devices, enable optional UNet pre-init for SDXL
+- Target: SDXL Turbo 768 on SM8750 generates a high-quality image in under 10 seconds (quality/perf balance)
+
+---
+
 ## Requirements
 
 - Qualcomm Adreno GPU

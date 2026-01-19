@@ -80,6 +80,14 @@
 
 ---
 
+## 未来计划
+
+- 引入 SDXL Base/Turbo 的 512/768 分辨率支持
+- 对 16GB RAM 机型开放 SDXL 的 UNet 预初始化选项
+- 目标：SM8750 上 SDXL Turbo 768 高质量图像生成时间控制在 10 秒以内（性能/质量折中）
+
+---
+
 ## 依赖与前提
 
 - Qualcomm Adreno GPU
