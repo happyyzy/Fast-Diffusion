@@ -1,5 +1,7 @@
 package io.github.happyyzy.sdxlclml
 
+import android.app.ActivityManager
+import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.os.Bundle
@@ -47,6 +49,7 @@ import java.io.FileOutputStream
 import java.io.InputStreamReader
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import java.security.MessageDigest
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -69,11 +72,27 @@ private const val BACKEND_PORT_SD15 = 8082
 private const val BACKEND_HEALTH_TIMEOUT_MS = 120000L
 private const val BACKEND_GENERATE_TIMEOUT_MS = 900000
 private const val MAX_LOG_CHARS = 8000
+private const val HF_REPO = "zhiyuanasad/fast-diffusion-weights"
+private const val HF_API = "https://huggingface.co/api/models/$HF_REPO"
+private const val HF_RESOLVE = "https://huggingface.co/$HF_REPO/resolve/main/"
+private const val SDXL_MIN_MEM_GB = 14.5
 
 private enum class ModelKind {
     SDXL,
     SD15,
 }
+
+private data class HfFile(
+    val path: String,
+    val size: Long,
+    val sha256: String,
+)
+
+private data class EnvStatus(
+    val openClOk: Boolean,
+    val totalMemGb: Double,
+    val sdxlOk: Boolean,
+)
 
 private data class RuntimePaths(
     val runtimeDir: File,
@@ -95,6 +114,25 @@ private data class RuntimePaths(
     val sd15BackendBin: File,
     val clipBin: File,
 )
+
+private fun getTotalMemGb(context: Context): Double {
+    val am = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+    val info = ActivityManager.MemoryInfo()
+    am.getMemoryInfo(info)
+    return info.totalMem.toDouble() / (1024.0 * 1024.0 * 1024.0)
+}
+
+private fun hasOpenClLib(): Boolean {
+    return File("/vendor/lib64/libOpenCL.so").exists() ||
+        File("/system/lib64/libOpenCL.so").exists()
+}
+
+private fun computeEnvStatus(context: Context, mnnFuseDir: File): EnvStatus {
+    val totalMemGb = getTotalMemGb(context)
+    val openClOk = hasOpenClLib() && File(mnnFuseDir, "libMNN_CL.so").exists()
+    val sdxlOk = openClOk && totalMemGb >= SDXL_MIN_MEM_GB
+    return EnvStatus(openClOk = openClOk, totalMemGb = totalMemGb, sdxlOk = sdxlOk)
+}
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -134,11 +172,21 @@ private fun MainScreen() {
     var backendModel by remember { mutableStateOf<ModelKind?>(null) }
     var backendExternalClip by remember { mutableStateOf(false) }
     var outputBitmap by remember { mutableStateOf<Bitmap?>(null) }
+    var envStatusText by remember { mutableStateOf("") }
+    var envDetailText by remember { mutableStateOf("") }
+    var downloadStatusText by remember { mutableStateOf("") }
+    var downloadProgressText by remember { mutableStateOf("") }
+    var downloadRunning by remember { mutableStateOf(false) }
+    var openClAvailable by remember { mutableStateOf(false) }
+    var sdxlAllowed by remember { mutableStateOf(true) }
+    var sd15Allowed by remember { mutableStateOf(true) }
     val logFileRef = remember { AtomicReference<File?>(null) }
     val backendProcRef = remember { AtomicReference<Process?>(null) }
     val logBuffer = remember { StringBuilder() }
     val logLock = remember { Any() }
     val logDirty = remember { AtomicBoolean(false) }
+    val hfCache = remember { mutableMapOf<String, List<HfFile>>() }
+    val downloadCancel = remember { AtomicBoolean(false) }
 
     LaunchedEffect(Unit) {
         while (true) {
@@ -210,11 +258,195 @@ private fun MainScreen() {
         mainHandler.post { outputBitmap = bitmap }
     }
 
+    fun setDownloadStatus(line: String) {
+        mainHandler.post { downloadStatusText = line }
+    }
+
+    fun setDownloadProgress(line: String) {
+        mainHandler.post { downloadProgressText = line }
+    }
+
+    fun setDownloadRunning(value: Boolean) {
+        mainHandler.post { downloadRunning = value }
+    }
+
+    fun updateEnvStatus() {
+        val paths = buildPaths(context)
+        val env = computeEnvStatus(context, paths.mnnFuseDir)
+        val memText = String.format(Locale.US, "%.1f", env.totalMemGb)
+        val envLine = "OpenCL/CLML: ${if (env.openClOk) "OK" else "Missing"} | RAM ${memText} GB"
+        val modelLine = when {
+            !env.openClOk -> "Available models: none (OpenCL/CLML missing)"
+            env.sdxlOk -> "Available models: SD1.5, SDXL"
+            else -> "Available models: SD1.5 only (SDXL needs >=${SDXL_MIN_MEM_GB}GB reported; device ${memText} GB)"
+        }
+        mainHandler.post {
+            envStatusText = envLine
+            envDetailText = modelLine
+            openClAvailable = env.openClOk
+            sdxlAllowed = env.sdxlOk
+            sd15Allowed = env.openClOk
+            if (modelKind == ModelKind.SDXL && !env.sdxlOk) {
+                modelKind = ModelKind.SD15
+                statusText = "SDXL disabled by RAM/driver check"
+            }
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        updateEnvStatus()
+    }
+
+    fun fetchHfFiles(prefix: String): List<HfFile> {
+        hfCache[prefix]?.let { return it }
+        val conn = URL(HF_API).openConnection() as HttpURLConnection
+        conn.connectTimeout = 15000
+        conn.readTimeout = 30000
+        conn.setRequestProperty("User-Agent", "Fast-Diffusion")
+        val payload = conn.inputStream.bufferedReader().use { it.readText() }
+        val json = JSONObject(payload)
+        val siblings = json.getJSONArray("siblings")
+        val files = ArrayList<HfFile>(siblings.length())
+        for (i in 0 until siblings.length()) {
+            val item = siblings.getJSONObject(i)
+            val path = item.getString("rfilename")
+            if (!path.startsWith(prefix)) continue
+            val lfs = item.optJSONObject("lfs")
+            val size = lfs?.optLong("size", -1) ?: -1
+            val oid = lfs?.optString("oid", "") ?: ""
+            files.add(HfFile(path = path, size = size, sha256 = oid))
+        }
+        hfCache[prefix] = files
+        return files
+    }
+
+    fun sha256Hex(file: File): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        FileInputStream(file).use { input ->
+            val buf = ByteArray(1024 * 1024)
+            while (true) {
+                val read = input.read(buf)
+                if (read <= 0) break
+                digest.update(buf, 0, read)
+            }
+        }
+        return digest.digest().joinToString("") { "%02x".format(it) }
+    }
+
+    fun isFileValid(hf: HfFile, baseDir: File): Boolean {
+        val dest = File(baseDir, hf.path)
+        if (!dest.exists()) return false
+        if (hf.size > 0 && dest.length() != hf.size) return false
+        if (hf.sha256.isNotEmpty()) {
+            val existing = sha256Hex(dest)
+            return existing.equals(hf.sha256, ignoreCase = true)
+        }
+        return true
+    }
+
+    fun downloadHfFile(hf: HfFile, baseDir: File): Boolean {
+        if (downloadCancel.get()) return false
+        val dest = File(baseDir, hf.path)
+        dest.parentFile?.mkdirs()
+        val part = File(dest.parentFile, dest.name + ".part")
+        if (part.exists()) part.delete()
+        if (dest.exists() && !isFileValid(hf, baseDir)) {
+            dest.delete()
+        }
+        if (dest.exists()) {
+            return true
+        }
+
+        val encoded = hf.path.split("/").joinToString("/") {
+            URLEncoder.encode(it, "UTF-8").replace("+", "%20")
+        }
+        val url = URL(HF_RESOLVE + encoded)
+        val conn = url.openConnection() as HttpURLConnection
+        conn.connectTimeout = 15000
+        conn.readTimeout = 30000
+        conn.setRequestProperty("User-Agent", "Fast-Diffusion")
+        if (conn.responseCode !in 200..299) {
+            appendLog("Download failed: ${hf.path} code=${conn.responseCode}")
+            return false
+        }
+
+        val tmp = File(dest.parentFile, dest.name + ".part")
+        val digest = MessageDigest.getInstance("SHA-256")
+        conn.inputStream.use { input ->
+            FileOutputStream(tmp).use { output ->
+                val buf = ByteArray(1024 * 1024)
+                while (true) {
+                    val read = input.read(buf)
+                    if (read <= 0) break
+                    if (downloadCancel.get()) {
+                        tmp.delete()
+                        return false
+                    }
+                    digest.update(buf, 0, read)
+                    output.write(buf, 0, read)
+                }
+            }
+        }
+        val got = digest.digest().joinToString("") { "%02x".format(it) }
+        if (hf.sha256.isNotEmpty() && !got.equals(hf.sha256, ignoreCase = true)) {
+            tmp.delete()
+            appendLog("SHA256 mismatch: ${hf.path}")
+            return false
+        }
+        if (dest.exists()) dest.delete()
+        if (!tmp.renameTo(dest)) {
+            tmp.copyTo(dest, overwrite = true)
+            tmp.delete()
+        }
+        return true
+    }
+
+    fun downloadMissingPrefix(prefix: String, baseDir: File): Boolean {
+        setDownloadStatus("Fetching list: $prefix")
+        val files = fetchHfFiles(prefix)
+        if (files.isEmpty()) {
+            setDownloadStatus("No files in HF: $prefix")
+            return false
+        }
+        val missing = files.filterNot { isFileValid(it, baseDir) }
+        if (missing.isEmpty()) {
+            setDownloadStatus("All files already present")
+            setDownloadProgress("")
+            return true
+        }
+        val total = missing.size
+        for ((idx, hf) in missing.sortedBy { it.path }.withIndex()) {
+            if (downloadCancel.get()) {
+                setDownloadStatus("Canceled")
+                return false
+            }
+            setDownloadProgress("(${idx + 1}/$total) ${hf.path}")
+            if (!downloadHfFile(hf, baseDir)) {
+                if (downloadCancel.get()) {
+                    setDownloadStatus("Canceled")
+                    return false
+                }
+                setDownloadStatus("Failed: ${hf.path}")
+                return false
+            }
+        }
+        return true
+    }
+
     fun checkResources() {
+        updateEnvStatus()
         val paths = buildPaths(context)
         prepareRuntime(context, paths, ::appendLog)
+        val env = computeEnvStatus(context, paths.mnnFuseDir)
+        val memText = String.format(Locale.US, "%.1f", env.totalMemGb)
         val missing = mutableListOf<String>()
+        if (!env.openClOk) {
+            missing.add("OpenCL/CLML not available on this device")
+        }
         if (modelKind == ModelKind.SDXL) {
+            if (!env.sdxlOk) {
+                missing.add("SDXL disabled: RAM ${memText} GB (<${SDXL_MIN_MEM_GB}GB reported) or OpenCL missing")
+            }
             if (!paths.weightsDir.exists()) {
                 missing.add("sdxl weights dir missing: ${paths.weightsDir}")
             } else {
@@ -238,18 +470,18 @@ private fun MainScreen() {
             if (!vaeBin.exists()) missing.add("vae bin missing: ${vaeBin}")
             if (!clipBin.exists()) missing.add("clip bin missing: ${clipBin}")
         } else {
-                if (!paths.sd15WeightsDir.exists()) {
-                    missing.add("sd15 weights dir missing: ${paths.sd15WeightsDir}")
-                } else {
-                    val weightsSub = File(paths.sd15WeightsDir, "weights")
-                    if (!weightsSub.exists()) {
-                        missing.add("sd15 weights/ subdir missing: ${weightsSub}")
-                    }
+            if (!paths.sd15WeightsDir.exists()) {
+                missing.add("sd15 weights dir missing: ${paths.sd15WeightsDir}")
+            } else {
+                val weightsSub = File(paths.sd15WeightsDir, "weights")
+                if (!weightsSub.exists()) {
+                    missing.add("sd15 weights/ subdir missing: ${weightsSub}")
                 }
-                if (!paths.sd15TokenizerJson.exists()) missing.add("sd15 tokenizer.json missing: ${paths.sd15TokenizerJson}")
-                val backendBin = paths.sd15BackendBin
-                if (!backendBin.exists()) missing.add("sd15 backend bin missing: ${backendBin}")
             }
+            if (!paths.sd15TokenizerJson.exists()) missing.add("sd15 tokenizer.json missing: ${paths.sd15TokenizerJson}")
+            val backendBin = paths.sd15BackendBin
+            if (!backendBin.exists()) missing.add("sd15 backend bin missing: ${backendBin}")
+        }
         val mnnLib = File(paths.mnnFuseDir, "libMNN.so")
         val mnnExpress = File(paths.mnnFuseDir, "libMNN_Express.so")
         val mnnCl = File(paths.mnnFuseDir, "libMNN_CL.so")
@@ -263,6 +495,42 @@ private fun MainScreen() {
         } else {
             setMissing(missing.joinToString("\n"))
         }
+    }
+
+    fun cancelDownload() {
+        if (!downloadRunning) return
+        downloadCancel.set(true)
+        setDownloadStatus("Canceling")
+    }
+
+    fun downloadModelAssets(kind: ModelKind) {
+        if (downloadRunning) return
+        downloadCancel.set(false)
+        setDownloadRunning(true)
+        setDownloadStatus("Starting")
+        setDownloadProgress("")
+        Thread {
+            try {
+                val paths = buildPaths(context)
+                val ok = if (kind == ModelKind.SDXL) {
+                    downloadMissingPrefix("MNN_clip/", paths.baseDir) &&
+                        downloadMissingPrefix("sdxl_clml_weights/", paths.baseDir)
+                } else {
+                    downloadMissingPrefix("sd15_clml_weights/", paths.baseDir)
+                }
+                val canceled = downloadCancel.get()
+                setDownloadStatus(
+                    if (canceled) "Canceled" else if (ok) "Done" else "Failed"
+                )
+            } catch (e: Exception) {
+                setDownloadStatus("Error: ${e.message}")
+            } finally {
+                setDownloadRunning(false)
+                downloadCancel.set(false)
+                updateEnvStatus()
+                checkResources()
+            }
+        }.start()
     }
 
     fun waitForBackendReady(port: Int): Boolean {
@@ -298,6 +566,17 @@ private fun MainScreen() {
     }
 
     fun startBackend() {
+        updateEnvStatus()
+        if (!openClAvailable) {
+            setStatus("OpenCL/CLML missing")
+            setBackendStatus("Error")
+            return
+        }
+        if (modelKind == ModelKind.SDXL && !sdxlAllowed) {
+            setStatus("SDXL disabled by RAM/driver check")
+            setBackendStatus("Error")
+            return
+        }
         val existing = backendProcRef.get()
         if (existing != null && existing.isAlive) {
             if (backendModel != modelKind) {
@@ -691,6 +970,14 @@ private fun MainScreen() {
 
         fun switchModel(next: ModelKind) {
             if (modelKind == next) return
+            if (next == ModelKind.SDXL && !sdxlAllowed) {
+                statusText = "SDXL disabled by RAM/driver check"
+                return
+            }
+            if (next == ModelKind.SD15 && !sd15Allowed) {
+                statusText = "SD1.5 disabled (OpenCL/CLML missing)"
+                return
+            }
             if (backendReady || (backendProcRef.get()?.isAlive == true)) {
                 appendLog("Stopping backend for model switch")
                 stopBackend()
@@ -702,12 +989,14 @@ private fun MainScreen() {
             RadioButton(
                 selected = modelKind == ModelKind.SDXL,
                 onClick = { switchModel(ModelKind.SDXL) },
+                enabled = sdxlAllowed,
             )
             Text("SDXL 1024")
             Spacer(modifier = Modifier.width(8.dp))
             RadioButton(
                 selected = modelKind == ModelKind.SD15,
                 onClick = { switchModel(ModelKind.SD15) },
+                enabled = sd15Allowed,
             )
             Text("SD1.5 512 (UNet resident)")
         }
@@ -771,22 +1060,71 @@ private fun MainScreen() {
             }
         }
 
+        Text("Environment")
+        if (envStatusText.isNotEmpty()) {
+            Text(envStatusText)
+        }
+        if (envDetailText.isNotEmpty()) {
+            Text(envDetailText)
+        }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = { checkResources() }, enabled = !isRunning) {
+            Button(
+                onClick = { checkResources() },
+                enabled = !isRunning,
+                modifier = Modifier.weight(1f),
+            ) {
                 Text("Check resources")
             }
-            Button(onClick = { startBackend() }, enabled = !isRunning) {
+            Button(
+                onClick = { startBackend() },
+                enabled = !isRunning,
+                modifier = Modifier.weight(1f),
+            ) {
                 Text("Init backend")
             }
-            Button(onClick = { stopBackend() }, enabled = !isRunning) {
+            Button(
+                onClick = { stopBackend() },
+                enabled = !isRunning,
+                modifier = Modifier.weight(1f),
+            ) {
                 Text("Stop")
             }
         }
+        Button(
+            onClick = { runGenerate() },
+            enabled = !isRunning && backendReady,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text("Generate")
+        }
 
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = { runGenerate() }, enabled = !isRunning && backendReady) {
-                Text("Generate")
-            }
+        Text("Downloads")
+        Button(
+            onClick = { downloadModelAssets(ModelKind.SDXL) },
+            enabled = !downloadRunning,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text("Download SDXL (missing only)")
+        }
+        Button(
+            onClick = { downloadModelAssets(ModelKind.SD15) },
+            enabled = !downloadRunning,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text("Download SD1.5 (missing only)")
+        }
+        Button(
+            onClick = { cancelDownload() },
+            enabled = downloadRunning,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text("Stop download")
+        }
+        if (downloadStatusText.isNotEmpty()) {
+            Text("Download: $downloadStatusText")
+        }
+        if (downloadProgressText.isNotEmpty()) {
+            Text(downloadProgressText)
         }
 
         val paths = buildPaths(context)
